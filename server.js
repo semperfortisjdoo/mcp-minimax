@@ -5,12 +5,10 @@ import { URLSearchParams } from "url";
 const app = express();
 const port = process.env.PORT || 10000;
 
-// testni endpoint
 app.get("/", (req, res) => {
-  res.send("✅ MCP Minimax server aktivan!");
+  res.send("✅ MCP Minimax server aktivan i povezan s /HR/API!");
 });
 
-// partners endpoint
 app.get("/partners", async (req, res) => {
   const {
     client_id,
@@ -21,63 +19,106 @@ app.get("/partners", async (req, res) => {
     MINIMAX_API_URL,
   } = process.env;
 
-  console.log("🔍 DEBUG INFO — pokušaj autentifikacije:");
-  console.log("client_id:", client_id ? "OK" : "❌ MISSING");
-  console.log("client_secret:", client_secret ? "OK" : "❌ MISSING");
-  console.log("username:", username ? "OK" : "❌ MISSING");
-  console.log("password:", password ? "OK" : "❌ MISSING");
+  console.log("🔍 DEBUG: Pokrećem Minimax auth...");
+  console.log("client_id:", client_id ? "OK" : "❌ missing");
+  console.log("client_secret:", client_secret ? "OK" : "❌ missing");
+  console.log("username:", username ? "OK" : "❌ missing");
+  console.log("password:", password ? "OK" : "❌ missing");
   console.log("MINIMAX_AUTH_URL:", MINIMAX_AUTH_URL);
   console.log("MINIMAX_API_URL:", MINIMAX_API_URL);
 
   try {
-    const params = new URLSearchParams();
-    params.append("grant_type", "password");
-    params.append("client_id", client_id);
-    params.append("client_secret", client_secret);
-    params.append("username", username);
-    params.append("password", password);
+    // 1️⃣ Autentifikacija
+    const authParams = new URLSearchParams();
+    authParams.append("grant_type", "password");
+    authParams.append("client_id", client_id);
+    authParams.append("client_secret", client_secret);
+    authParams.append("username", username);
+    authParams.append("password", password);
 
-    console.log("📡 Sending auth request to:", MINIMAX_AUTH_URL);
-    console.log("📤 Payload (without password):", {
-      grant_type: "password",
-      client_id,
-      client_secret: client_secret ? "(hidden)" : "❌",
-      username,
-      password: password ? "(hidden)" : "❌",
-    });
-
+    console.log("📡 Šaljem auth request...");
     const tokenResponse = await fetch(MINIMAX_AUTH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params,
+      body: authParams,
     });
 
     const tokenText = await tokenResponse.text();
-    console.log("📥 Auth raw response:", tokenText);
+    console.log("📥 Auth response:", tokenText);
 
     if (!tokenResponse.ok) {
-      console.error("❌ Auth request failed with status:", tokenResponse.status);
       return res.status(401).json({
-        error: "Greška kod autentifikacije prema Minimaxu",
+        error: "❌ Greška kod autentifikacije prema Minimaxu",
         details: tokenText,
       });
     }
 
     const tokenData = JSON.parse(tokenText);
     const accessToken = tokenData.access_token;
-    console.log("✅ Token OK:", !!accessToken);
 
-    const partnersResponse = await fetch(`${MINIMAX_API_URL}/partners`, {
+    if (!accessToken) {
+      return res.status(500).json({
+        error: "❌ Token nije vraćen",
+        details: tokenData,
+      });
+    }
+
+    console.log("✅ Autentifikacija OK, token primljen.");
+
+    // 2️⃣ Dohvati trenutnog korisnika
+    const currentUserResponse = await fetch(
+      `${MINIMAX_API_URL}/api/currentuser`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const currentUserText = await currentUserResponse.text();
+    console.log("📥 currentuser:", currentUserText);
+
+    // 3️⃣ Dohvati sve organizacije korisnika
+    const orgsResponse = await fetch(`${MINIMAX_API_URL}/api/currentuser/orgs`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const partnersText = await partnersResponse.text();
-    console.log("📥 Partners response:", partnersText);
+    const orgsText = await orgsResponse.text();
+    console.log("📥 orgs:", orgsText);
+
+    if (!orgsResponse.ok) {
+      return res.status(500).json({
+        error: "❌ Ne mogu dohvatiti organizacije korisnika",
+        details: orgsText,
+      });
+    }
+
+    const orgsData = JSON.parse(orgsText);
+    if (!orgsData || !orgsData.length) {
+      return res.status(404).json({
+        error: "❌ Korisnik nema organizacija",
+        details: orgsData,
+      });
+    }
+
+    const organisationId = orgsData[0].organisationId;
+    console.log("🏢 Prva organizacija ID:", organisationId);
+
+    // 4️⃣ Dohvati kontakte (partnere) te organizacije
+    const contactsResponse = await fetch(
+      `${MINIMAX_API_URL}/api/orgs/${organisationId}/contacts`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const contactsText = await contactsResponse.text();
+    console.log("📥 contacts:", contactsText);
+
+    if (!contactsResponse.ok) {
+      return res.status(500).json({
+        error: "❌ Greška kod dohvaćanja kontakata",
+        details: contactsText,
+      });
+    }
 
     res.setHeader("Content-Type", "application/json");
-    res.send(partnersText);
+    res.send(contactsText);
   } catch (err) {
-    console.error("💥 Unhandled error:", err);
+    console.error("💥 Neočekivana greška:", err);
     res.status(500).json({
       error: "Greška u komunikaciji s Minimaxom",
       details: err.message,
