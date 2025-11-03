@@ -5,6 +5,9 @@ import { URLSearchParams } from "url";
 const app = express();
 const port = process.env.PORT || 10000;
 
+// ----------------------------
+// 🧩 Manifest JSON
+// ----------------------------
 const manifestJSON = {
   schemaVersion: "1.0",
   name: "Minimax MCP Server",
@@ -19,8 +22,7 @@ const manifestJSON = {
     },
     {
       name: "getPartners",
-      description:
-        "Dohvaća popis partnera (kontakata) za odabranu organizaciju.",
+      description: "Dohvaća popis partnera (kontakata) za odabranu organizaciju.",
       inputSchema: {
         type: "object",
         properties: {
@@ -39,19 +41,30 @@ const manifestJSON = {
         required: ["orgId"],
       },
     },
+    {
+      name: "createInvoice",
+      description: "Kreira novi izlazni račun u statusu predložak (Draft).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          orgId: { type: "number", description: "ID organizacije" },
+          partnerName: { type: "string", description: "Naziv partnera" },
+          itemName: { type: "string", description: "Naziv artikla" },
+          quantity: { type: "number", description: "Količina" },
+          price: { type: "number", description: "Jedinična cijena" },
+          vatRate: { type: "number", description: "Stopa PDV-a" },
+        },
+        required: ["orgId", "partnerName"],
+      },
+    },
   ],
 };
 
-// ---------------------------------------------------
-// 🔧 Helper: autentifikacija prema Minimaxu
+// ----------------------------
+// 🔐 Autentifikacija
+// ----------------------------
 async function getAccessToken() {
-  const {
-    client_id,
-    client_secret,
-    username,
-    password,
-    MINIMAX_AUTH_URL,
-  } = process.env;
+  const { client_id, client_secret, username, password, MINIMAX_AUTH_URL } = process.env;
 
   const authParams = new URLSearchParams();
   authParams.append("grant_type", "password");
@@ -76,8 +89,9 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-// ---------------------------------------------------
-// ✅ Root manifest endpoints (sve što ChatGPT može tražiti)
+// ----------------------------
+// 🌐 Manifest rute (za ChatGPT/Claude)
+// ----------------------------
 app.get("/", (req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.json(manifestJSON);
@@ -93,15 +107,15 @@ app.get("/mcp/manifest", (req, res) => {
   res.json(manifestJSON);
 });
 
-// ---------------------------------------------------
-// 📊 Dohvati sve organizacije
+// ----------------------------
+// 🏢 Dohvati organizacije
+// ----------------------------
 app.get("/orgs", async (req, res) => {
   try {
     const token = await getAccessToken();
-    const orgsResponse = await fetch(
-      `${process.env.MINIMAX_API_URL}/api/currentuser/orgs`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const orgsResponse = await fetch(`${process.env.MINIMAX_API_URL}/api/currentuser/orgs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     const orgsText = await orgsResponse.text();
     res.setHeader("Content-Type", "application/json");
     res.send(orgsText);
@@ -111,18 +125,19 @@ app.get("/orgs", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------
-// 👥 Dohvati partnere (kontakte)
+// ----------------------------
+// 👥 Dohvati partnere
+// ----------------------------
 app.get("/partners", async (req, res) => {
   try {
     const token = await getAccessToken();
-    const orgsResponse = await fetch(
-      `${process.env.MINIMAX_API_URL}/api/currentuser/orgs`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const { org, orgId } = req.query;
+
+    const orgsResponse = await fetch(`${process.env.MINIMAX_API_URL}/api/currentuser/orgs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     const orgsData = await orgsResponse.json();
 
-    const { org, orgId } = req.query;
     let organisationId = null;
 
     if (orgId) {
@@ -143,9 +158,7 @@ app.get("/partners", async (req, res) => {
     }
 
     if (!organisationId)
-      return res.status(404).json({
-        error: "Organizacija nije pronađena.",
-      });
+      return res.status(404).json({ error: "Organizacija nije pronađena." });
 
     const contactsResponse = await fetch(
       `${process.env.MINIMAX_API_URL}/api/orgs/${organisationId}/contacts`,
@@ -161,14 +174,14 @@ app.get("/partners", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------
-// 📄 Dohvati račune (invoices)
+// ----------------------------
+// 📄 Dohvati račune
+// ----------------------------
 app.get("/invoices", async (req, res) => {
   try {
     const token = await getAccessToken();
     const { orgId } = req.query;
-    if (!orgId)
-      return res.status(400).json({ error: "Nedostaje orgId parametar." });
+    if (!orgId) return res.status(400).json({ error: "Nedostaje orgId parametar." });
 
     const invoicesResponse = await fetch(
       `${process.env.MINIMAX_API_URL}/api/orgs/${orgId}/invoices`,
@@ -184,10 +197,92 @@ app.get("/invoices", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------
-// Ping za provjeru dostupnosti
+// ----------------------------
+// 🧾 Kreiraj novi izlazni račun (predložak)
+// ----------------------------
+app.post("/createInvoice", express.json(), async (req, res) => {
+  try {
+    const token = await getAccessToken();
+
+    const {
+      orgId = 10037,
+      partnerName = "Valamar",
+      itemName = "Administrativne usluge",
+      quantity = 1,
+      price = 10,
+      vatRate = 25,
+    } = req.body;
+
+    // 1️⃣ Pronađi partnera po imenu
+    const partnersResponse = await fetch(
+      `${process.env.MINIMAX_API_URL}/api/orgs/${orgId}/contacts`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    const partnersData = await partnersResponse.json();
+    const matchedPartner = partnersData.Rows?.find((p) =>
+      p.Name.toLowerCase().includes(partnerName.toLowerCase())
+    );
+
+    if (!matchedPartner) {
+      return res.status(404).json({
+        error: `Partner '${partnerName}' nije pronađen u organizaciji ${orgId}.`,
+      });
+    }
+
+    const partnerId = matchedPartner.ID;
+
+    // 2️⃣ Kreiraj račun
+    const invoiceData = {
+      DocumentType: "IssuedInvoice",
+      DocumentStatus: "Draft",
+      Partner: { ID: partnerId },
+      Items: [
+        {
+          ItemName: itemName,
+          Quantity: quantity,
+          UnitPrice: price,
+          VatRate: vatRate,
+          VatType: "S",
+        },
+      ],
+      Note: "Račun kreiran automatski putem MCP servera (predložak).",
+    };
+
+    const response = await fetch(
+      `${process.env.MINIMAX_API_URL}/api/orgs/${orgId}/invoices`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(invoiceData),
+      }
+    );
+
+    const text = await response.text();
+    if (!response.ok) {
+      console.error("❌ Greška pri kreiranju računa:", text);
+      return res.status(400).send({ error: "Neuspješno kreiranje računa.", details: text });
+    }
+
+    res.setHeader("Content-Type", "application/json");
+    res.send(text);
+  } catch (err) {
+    console.error("💥 /createInvoice error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------
+// 🩵 Ping
+// ----------------------------
 app.get("/ping", (req, res) => {
   res.status(200).send("pong");
 });
 
+// ----------------------------
+// 🚀 Pokreni server
+// ----------------------------
 app.listen(port, () => console.log(`🚀 Server pokrenut na portu ${port}`));
