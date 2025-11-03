@@ -40,13 +40,15 @@ async function getAccessToken() {
 }
 
 // ---------------------------------------------------
-// 🧩 MCP MANIFEST ENDPOINT
+// 🧩 MCP MANIFEST ENDPOINT (ChatGPT ga čita)
 app.get("/", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
   res.json({
     schemaVersion: "1.0",
     name: "Minimax MCP Server",
     version: "1.0.0",
-    description: "MCP server za dohvat organizacija, partnera i računa iz Minimax API-ja.",
+    description:
+      "MCP server za dohvat organizacija, partnera i računa iz Minimax API-ja.",
     tools: [
       {
         name: "getOrgs",
@@ -59,12 +61,67 @@ app.get("/", (req, res) => {
       },
       {
         name: "getPartners",
-        description: "Dohvaća popis partnera (kontakata) za odabranu organizaciju.",
+        description:
+          "Dohvaća popis partnera (kontakata) za odabranu organizaciju.",
         inputSchema: {
           type: "object",
           properties: {
             orgId: { type: "number", description: "ID organizacije" },
-            org: { type: "string", description: "Naziv organizacije (alternativa orgId)" },
+            org: {
+              type: "string",
+              description: "Naziv organizacije (alternativa orgId)",
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: "getInvoices",
+        description: "Dohvaća popis računa za odabranu organizaciju.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            orgId: { type: "number", description: "ID organizacije" },
+          },
+          required: ["orgId"],
+        },
+      },
+    ],
+  });
+});
+
+// ---------------------------------------------------
+// 🔁 /manifest endpoint (za potpunu kompatibilnost)
+app.get("/manifest", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  res.json({
+    schemaVersion: "1.0",
+    name: "Minimax MCP Server",
+    version: "1.0.0",
+    description:
+      "MCP server za dohvat organizacija, partnera i računa iz Minimax API-ja.",
+    tools: [
+      {
+        name: "getOrgs",
+        description: "Dohvaća sve organizacije dostupne korisniku u Minimaxu.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+      {
+        name: "getPartners",
+        description:
+          "Dohvaća popis partnera (kontakata) za odabranu organizaciju.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            orgId: { type: "number", description: "ID organizacije" },
+            org: {
+              type: "string",
+              description: "Naziv organizacije (alternativa orgId)",
+            },
           },
           required: [],
         },
@@ -103,7 +160,7 @@ app.get("/orgs", async (req, res) => {
 });
 
 // ---------------------------------------------------
-// 👥 Dohvati partnere (kontakte) za organizaciju
+// 👥 Dohvati partnere (kontakte)
 app.get("/partners", async (req, res) => {
   try {
     const token = await getAccessToken();
