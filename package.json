@@ -1,0 +1,13 @@
+{
+  "name": "mcp-minimax",
+  "version": "1.0.0",
+  "description": "MCP poslužitelj za Minimax integraciju",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
