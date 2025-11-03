@@ -1,60 +1,56 @@
-// server.js
 import express from "express";
-import axios from "axios";
+import fetch from "node-fetch";
 
 const app = express();
-app.use(express.json());
+const port = process.env.PORT || 10000;
 
-// === Konfiguracija Minimax API pristupa ===
-const MINIMAX_BASE_URL = "https://moj.minimax.hr/api/v2";
-const CLIENT_ID = process.env.CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const USERNAME = process.env.USERNAME;
-const PASSWORD = process.env.PASSWORD;
-
-// === Funkcija za dobivanje tokena ===
-async function getAccessToken() {
-  try {
-    console.log("🧩 Debug Minimax auth pokušaj:");
-    console.log("CLIENT_ID:", CLIENT_ID ? "OK" : "❌ missing");
-    console.log("CLIENT_SECRET:", CLIENT_SECRET ? "OK" : "❌ missing");
-    console.log("USERNAME:", USERNAME ? "OK" : "❌ missing");
-    console.log("PASSWORD:", PASSWORD ? "OK" : "❌ missing");
-
-    const response = await axios.post(`${MINIMAX_BASE_URL}/token`, {
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      username: USERNAME,
-      password: PASSWORD,
-      grant_type: "password",
-    });
-
-    console.log("✅ Token uspješno dohvaćen!");
-    return response.data.access_token;
-  } catch (err) {
-    console.error("❌ Greška kod autentifikacije:", err.response?.data || err.message);
-    throw new Error("Greška kod autentifikacije prema Minimaxu");
-  }
-}
-
-// === Testna ruta ===
 app.get("/", (req, res) => {
-  res.send("✅ MCP Minimax server s debugom radi!");
+  res.send("✅ MCP Minimax server aktivan!");
 });
 
-// === Endpoint za partnere ===
 app.get("/partners", async (req, res) => {
+  const { CLIENT_ID, CLIENT_SECRET, USERNAME, PASSWORD, MINIMAX_AUTH_URL, MINIMAX_API_URL } = process.env;
+
+  console.log("🔍 Debug auth attempt...");
+  console.log("CLIENT_ID:", CLIENT_ID ? "OK" : "❌ missing");
+  console.log("CLIENT_SECRET:", CLIENT_SECRET ? "OK" : "❌ missing");
+  console.log("USERNAME:", USERNAME ? "OK" : "❌ missing");
+  console.log("PASSWORD:", PASSWORD ? "OK" : "❌ missing");
+
   try {
-    const token = await getAccessToken();
-    const response = await axios.get(`${MINIMAX_BASE_URL}/partners`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const tokenResponse = await fetch(MINIMAX_AUTH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "password",
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        username: USERNAME,
+        password: PASSWORD,
+      }),
     });
-    res.json(response.data);
-  } catch (err) {
-    res.status(500).json({ error: err.response?.data || err.message });
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenResponse.ok) {
+      console.error("❌ Auth error:", tokenData);
+      return res.status(401).json({ error: "Greška kod autentifikacije prema Minimaxu", details: tokenData });
+    }
+
+    const accessToken = tokenData.access_token;
+    console.log("✅ Auth OK");
+
+    const partnersResponse = await fetch(`${MINIMAX_API_URL}/partners`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const partners = await partnersResponse.json();
+    res.json(partners);
+
+  } catch (error) {
+    console.error("❌ Greška:", error);
+    res.status(500).json({ error: "Greška u komunikaciji s Minimaxom", details: error.message });
   }
 });
 
-// === Pokretanje servera ===
-const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`🚀 Server pokrenut na portu ${port}`));
