@@ -5,8 +5,8 @@ import { URLSearchParams } from "url";
 const app = express();
 const port = process.env.PORT || 10000;
 
-// -------------------------------
-// HELPER: autentifikacija
+// ---------------------------------------------------
+// 🔧 Helper: autentifikacija prema Minimaxu
 async function getAccessToken() {
   const {
     client_id,
@@ -39,14 +39,53 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-// -------------------------------
-// Test endpoint
+// ---------------------------------------------------
+// 🧩 MCP MANIFEST ENDPOINT
 app.get("/", (req, res) => {
-  res.send("✅ MCP Minimax server aktivan – podržava više organizacija!");
+  res.json({
+    schemaVersion: "1.0",
+    name: "Minimax MCP Server",
+    version: "1.0.0",
+    description: "MCP server za dohvat organizacija, partnera i računa iz Minimax API-ja.",
+    tools: [
+      {
+        name: "getOrgs",
+        description: "Dohvaća sve organizacije dostupne korisniku u Minimaxu.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+      {
+        name: "getPartners",
+        description: "Dohvaća popis partnera (kontakata) za odabranu organizaciju.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            orgId: { type: "number", description: "ID organizacije" },
+            org: { type: "string", description: "Naziv organizacije (alternativa orgId)" },
+          },
+          required: [],
+        },
+      },
+      {
+        name: "getInvoices",
+        description: "Dohvaća popis računa za odabranu organizaciju.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            orgId: { type: "number", description: "ID organizacije" },
+          },
+          required: ["orgId"],
+        },
+      },
+    ],
+  });
 });
 
-// -------------------------------
-// Endpoint: dohvat svih organizacija
+// ---------------------------------------------------
+// 📊 Dohvati sve organizacije
 app.get("/orgs", async (req, res) => {
   try {
     const token = await getAccessToken();
@@ -54,7 +93,6 @@ app.get("/orgs", async (req, res) => {
       `${process.env.MINIMAX_API_URL}/api/currentuser/orgs`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
-
     const orgsText = await orgsResponse.text();
     res.setHeader("Content-Type", "application/json");
     res.send(orgsText);
@@ -64,9 +102,8 @@ app.get("/orgs", async (req, res) => {
   }
 });
 
-// -------------------------------
-// Endpoint: dohvat partnera za organizaciju
-// primjer: /partners?org=SEMPER%20FORTIS  ili  /partners?orgId=10037
+// ---------------------------------------------------
+// 👥 Dohvati partnere (kontakte) za organizaciju
 app.get("/partners", async (req, res) => {
   try {
     const token = await getAccessToken();
@@ -75,10 +112,6 @@ app.get("/partners", async (req, res) => {
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const orgsData = await orgsResponse.json();
-
-    if (!orgsData.Rows || !orgsData.Rows.length) {
-      return res.status(404).json({ error: "Nema dostupnih organizacija." });
-    }
 
     const { org, orgId } = req.query;
     let organisationId = null;
@@ -91,7 +124,6 @@ app.get("/partners", async (req, res) => {
       );
       if (match) organisationId = match.Organisation.ID;
     } else {
-      // ako nije navedeno ništa, vrati listu svih
       return res.json({
         info: "Navedi ?org=ime ili ?orgId=broj da dohvatim kontakte.",
         availableOrgs: orgsData.Rows.map((r) => ({
@@ -104,7 +136,6 @@ app.get("/partners", async (req, res) => {
     if (!organisationId)
       return res.status(404).json({
         error: "Organizacija nije pronađena.",
-        hint: "Probaj ?org=dio_imena_organizacije",
       });
 
     const contactsResponse = await fetch(
@@ -117,6 +148,29 @@ app.get("/partners", async (req, res) => {
     res.send(contactsText);
   } catch (err) {
     console.error("💥 /partners error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------
+// 📄 Dohvati račune (invoices)
+app.get("/invoices", async (req, res) => {
+  try {
+    const token = await getAccessToken();
+    const { orgId } = req.query;
+    if (!orgId)
+      return res.status(400).json({ error: "Nedostaje orgId parametar." });
+
+    const invoicesResponse = await fetch(
+      `${process.env.MINIMAX_API_URL}/api/orgs/${orgId}/invoices`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    const invoicesText = await invoicesResponse.text();
+    res.setHeader("Content-Type", "application/json");
+    res.send(invoicesText);
+  } catch (err) {
+    console.error("💥 /invoices error:", err);
     res.status(500).json({ error: err.message });
   }
 });
